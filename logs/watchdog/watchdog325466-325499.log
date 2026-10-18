@@ -1,0 +1,2 @@
+2026-10-18 20:02:05 LAPTOP-67OUHGAL watchdog[325603] INFO Watchdog started between parent 325466 and child 325499
+2026-10-18 20:14:25 LAPTOP-67OUHGAL watchdog[325603] INFO Parent is not running, hence we need terminate the child.

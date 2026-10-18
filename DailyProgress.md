@@ -52,3 +52,29 @@
 - [我] 实测 `-c` / `-lc` / `-ic` / `-lic` 四种组合下的 `type conda`：前两条报"文件路径"、后两条报"函数" → 说明只有 `-i` 会让 `.bashrc` 被读到底
 - [我] 用 `env -i` 清空环境做对照，四条结果与预期一致（只有 `-i` 才有 conda 函数）
 - [AI] 更新 `固定启动提示词.md`：第 7 节新增"记录必须区分谁在操作"一条，并同步到 `~/wujie`
+
+## 2026-10-18（MineDojo 安装 + Minecraft 启动排障：把三层报错剥到根因）
+
+- [AI] 创建 conda 环境 `minedojo`（Python 3.9）并安装 MineDojo 本体
+- **第 1 层坑 · 依赖源已失效**
+  - 症状：`Could not find com.github.SpongePowered:MixinGradle:dcfaf61`
+  - 实测：该 commit 在 jitpack 的构建状态为 `Error`、POM 返回 404；旧脚本还依赖已于 2021 年关停的 `jcenter()`
+  - 解决：[AI] 按官方未合并的 PR #137，给 `minedojo/sim/Malmo/Minecraft/build.gradle` 加 `repo.spongepowered.org` 仓库、坐标换成正式版 `org.spongepowered:mixingradle:0.6-SNAPSHOT`
+  - 结果：构建通过（14m55s，27 个任务全绿）
+- **第 2 层坑 · 游戏启动崩溃（报错与真因隔了三层）**
+  - 症状：`OpenGL: ~~ERROR~~ RuntimeException: No OpenGL context found in the current thread.`；崩溃报告里 `Caused by: java.lang.ArrayIndexOutOfBoundsException: 0` @ `LinuxDisplay.getAvailableDisplayModes`
+  - 判断一（只治了症状）：以为是 WSLg 给不了 GL → [我] 装 `xvfb` / `x11-utils` / `mesa-utils`；[AI] 预检 `glxinfo` 在 Xvfb 下正常（llvmpipe，OpenGL 4.5），但**报错一字未变**
+  - 判断二（同样只治症状）：以为 Gradle daemon 缓存了旧环境 → [AI] 实测 daemon（PID 308121，19:02 启动）环境为 `DISPLAY=:0`；kill daemon 重跑后新 daemon 确为 `DISPLAY=:99` + `GALLIUM_DRIVER=llvmpipe`，但**报错仍完全相同**
+  - 转折点：[AI] 写了 **40 秒最小 Java 探针**，直接调 LWJGL `Display.getAvailableDisplayModes()`，在三种 X 服务器（WSLg `:0`、手动 Xvfb `:99`、`xvfb-run` `:100`）下**全部返回空数组** → 证明与 X 服务器无关，并把 4 分钟一次的试错循环压成 40 秒
+  - 根因（[Mojira MC-111217](https://bugs.mojang.com/browse/MC-111217)）：**LWJGL 2.9.4 是通过调用外部命令 `xrandr` 来枚举显示模式的**，不是调库函数；系统里没有 `xrandr` 时 `XRandR.process()` 失败 → 空数组 → 崩。与 DISPLAY、GLX、显卡均无关
+  - 解决：[我] 安装 `x11-xserver-utils`（提供 `/usr/bin/xrandr`）
+  - 复测（探针）：WSLg `:0` → **35 个模式**；Xvfb `:99` → 1 个（1024x768）→ 修复确认
+- 环境新增依赖（需同步进 README「环境与依赖」）：`xvfb`、`x11-utils`、`mesa-utils`、`x11-xserver-utils`（均由 [我] 用 sudo apt 安装）
+- **结果 · 七步第②步完成（接上环境打印一次观测）**
+  - 运行命令：`xvfb-run -a -s "-screen 0 1024x768x24" python minedojo_observe.py`
+  - [AI] 20:28:08 启动 → 20:30:10 结束，耗时 2m02s（依赖与资源均已缓存），`observe exit=0`
+  - 观测顶层 9 个字段：`rgb` shape=(3,160,256) uint8｜`inventory`｜`equipment`｜`life_stats`｜`location_stats`｜`nearby_tools`｜`damage_source`｜`masks`｜`delta_inv`
+  - reset 首帧：`pos=[46.5, 71.0, 88.5]`，life=20 / food=20，光照等级 15，背包 36 格全空（全 `air`）
+  - 连续 5 次「前进」动作：z 坐标 88.598 → 89.332 单调递增，reward 恒 0，done 恒 False
+  - 产物：`frame_reset.png`(37719 B)、`frame_step5.png`(37918 B)
+- 对比：第 1 次完整构建 14m55s → 修复后单次运行 2m02s（Gradle 依赖与 Minecraft 资源已缓存）
