@@ -142,3 +142,71 @@
 - 装新工具后必做"回归检查"：确认旧工具（老 venv）没被弄坏
 - 排查"明明配好了却不生效"时，先怀疑"我是不是在非交互 shell 里跑的"（脚本、自动化、`-c` 场景都属非交互）
 - "同一命令在 A 处能跑、B 处不能跑" → 先比两处的父进程环境（`PATH` / 环境变量），再怀疑代码
+
+## 2026-10-18 · Git 提交流程
+
+### What I learned
+
+1. Git 有四个区域：工作区（我的文件夹）→ 暂存区（已 add）→ 本地仓库（已 commit）→ 远程仓库（已 push）。**别人只看得见第 4 个 —— commit 不等于上传**。
+2. `git status --short` 一次显示三类状态，**不是只看暂存区**：左列 = 暂存区 vs 上次提交；右列 = 工作区 vs 暂存区。
+3. 两列怎么读：
+
+   | 显示 | 含义 | 会进这次提交吗 |
+   | --- | --- | --- |
+   | `?? notes.md` | 新文件，Git 还没跟踪 | 不会 |
+   | ` M notes.md` | 改了但没 add | 不会 |
+   | `M  notes.md` | 已经 add | 会 |
+   | `MM notes.md` | 已 add，add 之后又改过 | 会（提交 add 那一刻的版本） |
+   | `A  new.py` | 新文件已 add | 会 |
+
+4. 提交前先跑 `git status --short`，是为了在 add 之前看清全貌、确认没有 `.env` 这类不该上去的文件；先生成再撤，永远比先 add 再捞出来省事。
+5. `git add .` 是无差别收编，容易把日志、缓存、密钥顺手带进去 → 改成按文件名精确 add。
+6. `git rm -r --cached 目录/` 只停止跟踪，磁盘上的文件还在（适合把误提交的运行日志移出）。
+7. 固定五步：`git status --short` → `git add 文件名` → `git commit -m "标题" -m "正文"` → `git push` → `git status -sb` 复查有无 `ahead`。
+
+### Issues & Fixes
+
+- Problem: 提交了两次都忘了 push，GitHub 上看不到
+- Cause: 误以为 commit 就等于上传
+- Solution: 固定流程最后一步 push，并用 `git status -sb` 确认没有 `ahead`
+
+- Problem: `git add .` 把 `logs/` 下 7 个运行日志一起提交了
+- Cause: 日志是 MineDojo 每次运行生成的产物，会不断累积
+- Solution: `git rm -r --cached logs/` + 把 `logs/` 写进 `.gitignore`
+
+### Takeaways
+
+- 判断该不该提交：能在别的机器上一条命令重新生成的东西（日志、环境、缓存），就不提交
+- `.env` 永远不进仓库，必须留在 `.gitignore` 里
+- 记不住就背这一句：**先 status，后 add；按名字，别用点**
+
+## 2026-10-18 · MineDojo 打通（环境层知识）
+
+### What I learned
+
+1. `reset` / `step` / `obs`：reset = 让 Agent 出生并拿到第一帧观测；step = 给一个动作、世界走一步、返回新观测。观测是一个固定 9 个 key 的字典。
+2. 9 个字段分 5 类：视觉（`rgb`、`masks`）｜身上（`equipment`）｜背包（`inventory`、`delta_inv`）｜身体（`life_stats`）｜所处（`location_stats`、`nearby_tools`、`damage_source`）。
+3. `pos` = 三维坐标 `[x, y, z]`，y 是高度、x/z 是水平方向；前进时 z 递增 → 证明动作真的作用到了世界。
+4. 「能打印观测」≠「动作生效」：前者只证明环境启动成功，必须看 step 之后状态有没有变。
+5. 探针（probe）= 只做一件事的最小程序，绕过整条链路直接调用出问题的那个函数。它的价值不是「快」，是「变量少」：4 分钟 → 40 秒，路上变量从 6 个压到 2 个。
+6. LWJGL 2.9.4 靠外部命令 `xrandr` 枚举显示模式（不是调库函数）；命令不存在 → 空数组 → 崩。
+
+### Issues & Fixes
+
+- Problem: `Could not find com.github.SpongePowered:MixinGradle:dcfaf61`
+- Cause: jitpack 上该 commit 构建状态为 `Error`、POM 直接 404；旧脚本还依赖已于 2021 年关停的 jcenter
+- Solution: 按官方未合并的 PR #137 改 `Malmo/Minecraft/build.gradle`（加 `repo.spongepowered.org`、坐标换成 `org.spongepowered:mixingradle:0.6-SNAPSHOT`）
+
+- Problem: Minecraft 启动崩，报 `No OpenGL context found`
+- Cause: **不是** OpenGL / 显卡 / 显示环境的问题 —— LWJGL 调用的 `xrandr` 命令在本机不存在，显示模式列表返回空数组
+- Solution: `sudo apt install x11-xserver-utils`；探针复测：WSLg `:0` → 35 个模式
+
+- Problem: Gradle daemon 带着旧环境变量（`DISPLAY=:0`），新设置不生效
+- Cause: daemon 是常驻进程，不会自动更新环境变量
+- Solution: 跑之前 `pkill -f GradleDaemon`
+
+### Takeaways
+
+- 报错信息 ≠ 真因，要顺着崩溃报告的 `Caused by` 一层层往下剥
+- 改环境变量后，先怀疑有没有旧的后台常驻进程还在跑
+- 想缩短试错，靠的不是「跑得更快」，而是「把变量变少」

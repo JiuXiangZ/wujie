@@ -69,7 +69,9 @@
   - 根因（[Mojira MC-111217](https://bugs.mojang.com/browse/MC-111217)）：**LWJGL 2.9.4 是通过调用外部命令 `xrandr` 来枚举显示模式的**，不是调库函数；系统里没有 `xrandr` 时 `XRandR.process()` 失败 → 空数组 → 崩。与 DISPLAY、GLX、显卡均无关
   - 解决：[我] 安装 `x11-xserver-utils`（提供 `/usr/bin/xrandr`）
   - 复测（探针）：WSLg `:0` → **35 个模式**；Xvfb `:99` → 1 个（1024x768）→ 修复确认
-- 环境新增依赖（需同步进 README「环境与依赖」）：`xvfb`、`x11-utils`、`mesa-utils`、`x11-xserver-utils`（均由 [我] 用 sudo apt 安装）
+- 环境新增依赖（均由 [我] 用 sudo apt 安装）：
+  - **运行必需**：`xvfb`（虚拟显示器）、`x11-xserver-utils`（提供 `xrandr` 命令，本次真正的解药）
+  - **排障工具（非运行必需）**：`x11-utils`（提供 `xdpyinfo`）、`mesa-utils`（提供 `glxinfo`）
 - **结果 · 七步第②步完成（接上环境打印一次观测）**
   - 运行命令：`xvfb-run -a -s "-screen 0 1024x768x24" python minedojo_observe.py`
   - [AI] 20:28:08 启动 → 20:30:10 结束，耗时 2m02s（依赖与资源均已缓存），`observe exit=0`
@@ -78,3 +80,13 @@
   - 连续 5 次「前进」动作：z 坐标 88.598 → 89.332 单调递增，reward 恒 0，done 恒 False
   - 产物：`frame_reset.png`(37719 B)、`frame_step5.png`(37918 B)
 - 对比：第 1 次完整构建 14m55s → 修复后单次运行 2m02s（Gradle 依赖与 Minecraft 资源已缓存）
+
+## 2026-10-18（收尾：Git 流程修正 + 记下一个想法）
+
+- [我] Git 修正三步：
+  - 提交 `2b6a7de` 后**忘记 push**（核对：本地领先远程 1 个提交）→ 补 push
+  - `git add .` 误把 `logs/` 下 7 个运行日志提交进仓库 → `git rm -r --cached logs/` + `.gitignore` 增加 `logs/`（提交 `9542b7f`）
+  - 核对结果：本地 = 远程 = `9542b7f`，工作区干净，`.env` 未被跟踪
+- [AI] `LearningLog.md` 新增「Git 提交流程」与「MineDojo 打通（环境层知识）」两节
+- **记下一个想法（未验证）**：环境观测字段目前固定 9 个。若后续某一步反复缺关键信息，可考虑「按任务需要扩充观测字段」（如把最近 N 步的状态变化、目标物的相对方位直接做成环境输出），以减少每步推理负担。属改环境配置的进阶内容，可行性待确认，当前不影响主线。
+  - [AI] 已同步记入 README「探索方向 · 已记录的想法（2026-10-18）」
